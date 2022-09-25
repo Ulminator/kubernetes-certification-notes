@@ -262,7 +262,66 @@ spec:
 Exposes your Service externally using a cloud provider's load balancer.
 - NodePort and ClusterIP Services, to which the external load balancer routes, are automatically created.
 
+* The actual creation of the load balancer happens asynchronously and information about the provisioned balancer is published in the Service's `.status.loadBalancer` field.
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: my-service
+spec:
+  selector:
+    app: MyApp
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 9376
+  clusterIP: 10.0.171.239
+  type: LoadBalancer
+status:
+  loadBalancer:
+    ingress:
+    - ip: 192.0.2.127
+```
+
+* Traffic from external load balancer is directed at backend Pods.
+    - Cloud provider determines how it is load balanced.
+* When more than one port is defined, all ports must have the same protocol and be one of (`TCP`, `UDP`, `SCTP`)
+* In a mixed envrionment where traffic needs to be routed from both external and internal clients, you can set up an `Internal load balancer` by adding annotations to the service.
+
 ### ExternalName
 Maps the Service to the contents of the `externalName` field, by returning a `CNAME` record with its value.
 - No proxying of any kind is set up.
 - **NOTE**: You need either `kube-dns` version 1.7 or `CoreDNS` version 0.0.8 or higher to use this type.
+- **NOTE**: ExternalName accepts an IPv4 address string, but as a DNS names comprised of digits, not as an IP address. ExternalNames that resemble IPv4 addresses are not resolved by CoreDNS or ingress-nginx because ExternalName is intended to specify a canonical DNS name. To hardcode an IP address, consider using headless Services.
+* Redirection happens at the DNS level rather than via proxying or forwarding
+- **WARNING**: You may have trouble using ExternalNmae for common protocols (HTTP/HTTPS).
+    - If you use ExternalName, then the hostname used by clients inside your cluster is different from the name that the ExternalName references.
+    - For protocols that use hostnames this difference may lead to errors or unexpected responses.
+        - HTTP requests will have a `Host:` header that the origin server does not recognize.
+        - TLS servers will not be able to provide a certificate matching the hostname that the client connected to.
+
+### External IPs
+
+- If there are external IPs that route to one or more cluster nodes, Kubernetes Services can be exposed on those `externalIPs`.
+- Traffic that inngresses into the cluster with the external IP (as destination IP), on the Service port, will be routed to one of the Service endpoints.
+- externalIPs are not managed by Kubernetes are the responsibility of the cluster administration.
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: my-service
+spec:
+  selector:
+    app: MyApp
+  ports:
+    - name: http
+      protocol: TCP
+      port: 80
+      targetPort: 9376
+  externalIPs:
+    - 80.11.12.10
+```
+
+## Shortcomings
